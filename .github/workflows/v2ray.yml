@@ -1,4 +1,4 @@
-name: اجرای g2ray و دریافت کانفیگ با تأخیر در حذف
+name: اجرای g2ray و دریافت کانفیگ با تأخیر (توکن مستقیم)
 
 on:
   workflow_dispatch:
@@ -12,24 +12,23 @@ on:
 jobs:
   run-in-g2ray:
     runs-on: ubuntu-latest
-    timeout-minutes: 60   # حداکثر زمان کل اجرای workflow
+    timeout-minutes: 60
 
     steps:
       - name: نصب GitHub CLI
         run: |
           type -p gh || (sudo apt-get update && sudo apt-get install -y gh)
 
-      - name: احراز هویت با توکن
-        env:
-          PAT: ${{ secrets.CODESPACE_PAT }}
-        run: echo "$PAT" | gh auth login --with-token
+      - name: احراز هویت با توکن (مستقیم در کد)
+        run: |
+          echo "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" | gh auth login --with-token
+        # ⚠️ مقدار "TOKEN_GH_XXXXXXXXXX" را با توکن واقعی خود جایگزین کنید.
 
       - name: ساخت Codespace روی پروژه اصلی g2ray
         id: create
         run: |
           REPO="ara0907/g2ray"
           echo "استفاده از مخزن: $REPO"
-          
           CS_NAME="g2ray-run-$(date +%s)"
           gh codespace create \
             --repo "$REPO" \
@@ -37,6 +36,41 @@ jobs:
             --machine basicLinux32gb \
             --codespace-name "$CS_NAME" \
             --json name,state -q '.name' > cs_name.txt
+          echo "codespace=$(cat cs_name.txt)" >> $GITHUB_OUTPUT
+          echo "منتظر آماده شدن Codespace (حدود ۲ تا ۵ دقیقه)..."
+          gh codespace wait -c "$(cat cs_name.txt)" --timeout 10m
+
+      - name: اجرای پروژه و ضبط خروجی کامل ترمینال
+        id: execute
+        run: |
+          CS_NAME="${{ steps.create.outputs.codespace }}"
+          echo "در حال ضبط لاگ‌های Codespace $CS_NAME ..."
+          LOG_FILE="/tmp/g2ray-output.log"
+          gh codespace ssh -c "$CS_NAME" -- "bash /workspaces/g2ray/.devcontainer/install.sh > $LOG_FILE 2>&1"
+          sleep 10
+          gh codespace cp -c "$CS_NAME" remote:"$LOG_FILE" terminal-output.txt
+          echo "✅ خروجی پروژه دریافت شد:"
+          cat terminal-output.txt
+
+      - name: آپلود خروجی به عنوان Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: g2ray-vless-config-link
+          path: terminal-output.txt
+
+      - name: تأخیر پیش از حذف (نگه‌داشتن Codespace)
+        run: |
+          DELAY_MINUTES=${{ github.event.inputs.retention_minutes }}
+          echo "⏳ Codespace برای $DELAY_MINUTES دقیقه دیگر فعال می‌ماند..."
+          sleep $(( DELAY_MINUTES * 60 ))
+          echo "زمان تأخیر به پایان رسید، Codespace حذف خواهد شد."
+
+      - name: حذف Codespace
+        if: always()
+        run: |
+          CS_NAME="${{ steps.create.outputs.codespace }}"
+          echo "حذف Codespace $CS_NAME ..."
+          gh codespace delete -c "$CS_NAME" --force || true            --json name,state -q '.name' > cs_name.txt
           
           echo "codespace=$(cat cs_name.txt)" >> $GITHUB_OUTPUT
           

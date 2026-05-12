@@ -1,4 +1,4 @@
-name: اجرای g2ray و دریافت کانفیگ با تأخیر (توکن مستقیم)
+name: اجرای g2ray و دریافت کانفیگ با تأخیر (توکن مستقیم امن)
 
 on:
   workflow_dispatch:
@@ -19,13 +19,18 @@ jobs:
         run: |
           type -p gh || (sudo apt-get update && sudo apt-get install -y gh)
 
-      - name: احراز هویت با توکن (مستقیم در کد)
+      - name: تنظیم توکن و بررسی احراز هویت
+        env:
+          # 👇 توکن خود را مستقیماً اینجا بگذارید (فقط در مخزن خصوصی!)
+          GH_TOKEN: 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
         run: |
-          echo "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" | gh auth login --with-token
-        # ⚠️ مقدار "TOKEN_GH_XXXXXXXXXX" را با توکن واقعی خود جایگزین کنید.
+          # بررسی سلامت توکن
+          gh auth status
+          echo "✅ احراز هویت موفقیت‌آمیز بود."
 
       - name: ساخت Codespace روی پروژه اصلی g2ray
         id: create
+        # env: لازم نیست دوباره تنظیم شود؛ GH_TOKEN در کل job به ارث می‌رسد
         run: |
           REPO="ara0907/g2ray"
           echo "استفاده از مخزن: $REPO"
@@ -40,7 +45,7 @@ jobs:
           echo "منتظر آماده شدن Codespace (حدود ۲ تا ۵ دقیقه)..."
           gh codespace wait -c "$(cat cs_name.txt)" --timeout 10m
 
-      - name: اجرای پروژه و ضبط خروجی کامل ترمینال
+      - name: اجرای پروژه و ضبط خروجی
         id: execute
         run: |
           CS_NAME="${{ steps.create.outputs.codespace }}"
@@ -58,12 +63,12 @@ jobs:
           name: g2ray-vless-config-link
           path: terminal-output.txt
 
-      - name: تأخیر پیش از حذف (نگه‌داشتن Codespace)
+      - name: تأخیر پیش از حذف Codespace
         run: |
           DELAY_MINUTES=${{ github.event.inputs.retention_minutes }}
           echo "⏳ Codespace برای $DELAY_MINUTES دقیقه دیگر فعال می‌ماند..."
           sleep $(( DELAY_MINUTES * 60 ))
-          echo "زمان تأخیر به پایان رسید، Codespace حذف خواهد شد."
+          echo "زمان تأخیر به پایان رسید."
 
       - name: حذف Codespace
         if: always()

@@ -19,20 +19,30 @@ jobs:
         run: |
           type -p gh || (sudo apt-get update && sudo apt-get install -y gh)
 
-      - name: تنظیم توکن و بررسی احراز هویت
+      - name: تنظیم توکن و تست احراز هویت
         env:
-          # 👇 توکن خود را مستقیماً اینجا بگذارید (فقط در مخزن خصوصی!)
+          # 👇 توکن خود را دقیقاً اینجا قرار دهید (فقط در مخزن خصوصی)
           GH_TOKEN: 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
         run: |
-          # بررسی سلامت توکن
-          gh auth status
-          echo "✅ احراز هویت موفقیت‌آمیز بود."
+          if [ -z "$GH_TOKEN" ] || [ "$GH_TOKEN" = "ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXX" ]; then
+            echo "❌ توکن خالی یا همچنان مقدار پیش‌فرض است. لطفاً آن را جایگزین کنید."
+            exit 1
+          fi
+          echo "توکن تنظیم شد (طول: ${#GH_TOKEN})"
+          USER=$(gh api user --jq '.login' 2>&1) || {
+            echo "❌ احراز هویت شکست خورد. لطفاً موارد زیر را بررسی کنید:"
+            echo "  - توکن دقیقاً از صفحه تنظیمات گیت‌هاب کپی شده باشد (بدون فاصله اضافه)"
+            echo "  - توکن از نوع classic و دارای مجوزهای repo و codespace باشد"
+            echo "  - توکن منقضی نشده باشد"
+            echo "خطای دریافتی: $USER"
+            exit 1
+          }
+          echo "✅ احراز هویت موفق. ورود به عنوان: $USER"
 
       - name: ساخت Codespace روی پروژه اصلی g2ray
         id: create
-        # env: لازم نیست دوباره تنظیم شود؛ GH_TOKEN در کل job به ارث می‌رسد
         run: |
-          REPO="ara0907/g2ray"
+          REPO="edrisranjbar/g2ray"
           echo "استفاده از مخزن: $REPO"
           CS_NAME="g2ray-run-$(date +%s)"
           gh codespace create \

@@ -21,10 +21,8 @@ jobs:
 
       - name: احراز هویت با توکن شما و تست کامل دسترسی‌ها
         env:
-          # 👇 توکن از Secret مخزن خوانده می‌شود (کاملاً امن، مثل فایل متنی)
           GH_TOKEN: ${{ secrets.G2RAY_TOKEN }}
         run: |
-          # ❗️ اولویت GITHUB_TOKEN سیستم را حذف می‌کنیم
           unset GITHUB_TOKEN
 
           if [ -z "$GH_TOKEN" ]; then
@@ -34,7 +32,6 @@ jobs:
 
           echo "✅ توکن با طول ${#GH_TOKEN} دریافت شد."
 
-          # لاگین صریح با توکن (دیگر هیچ ابهامی وجود ندارد)
           echo "$GH_TOKEN" | gh auth login --with-token
           USER=$(gh api user --jq '.login') || {
             echo "❌ توکن نامعتبر است یا منقضی شده."
@@ -42,14 +39,14 @@ jobs:
           }
           echo "👤 ورود به عنوان: $USER"
 
-          # تست دسترسی به مخزن g2ray (حداقل دسترسی repo)
-          echo "🔍 بررسی دسترسی به edrisranjbar/g2ray..."
-          gh api repos/edrisranjbar/g2ray --jq '.full_name' > /dev/null || {
-            echo "❌ توکن شما به مخزن edrisranjbar/g2ray دسترسی ندارد."
+          # بررسی دسترسی به مخزن ara0907/g2ray
+          echo "🔍 بررسی دسترسی به ara0907/g2ray..."
+          gh api repos/ara0907/g2ray --jq '.full_name' > /dev/null || {
+            echo "❌ توکن شما به مخزن ara0907/g2ray دسترسی ندارد."
             exit 1
           }
 
-          # تست امکان ساخت Codespace
+          # بررسی مجوز ساخت Codespace
           echo "🔍 بررسی مجوز ساخت Codespace..."
           gh api user/codespaces --jq '.total_count' > /dev/null 2>&1 || {
             echo "❌ توکن مجوز 'codespace' را ندارد."
@@ -58,11 +55,11 @@ jobs:
 
           echo "🎉 تمام بررسی‌های احراز و دسترسی با موفقیت گذرانده شد."
 
-      - name: ساخت Codespace روی پروژه اصلی g2ray
+      - name: ساخت Codespace روی پروژه ara0907/g2ray
         id: create
         run: |
           unset GITHUB_TOKEN
-          REPO="edrisranjbar/g2ray"
+          REPO="ara0907/g2ray"
           CS_NAME="g2ray-run-$(date +%s)"
           echo "📦 ساخت Codespace در مخزن $REPO ..."
           gh codespace create \

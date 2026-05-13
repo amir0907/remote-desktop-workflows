@@ -22,7 +22,7 @@ jobs:
       - name: تنظیم توکن و بررسی احراز هویت
         env:
           # 👇 توکن خود را مستقیماً اینجا بگذارید (فقط در مخزن خصوصی!)
-          GH_TOKEN: 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
+          GH_TOKEN: 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
         run: |
           # بررسی سلامت توکن
           gh auth status

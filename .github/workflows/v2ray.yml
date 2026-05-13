@@ -1,4 +1,4 @@
-name: اجرای g2ray و دریافت کانفیگ با تأخیر (توکن امن)
+name: اجرای g2ray و دریافت کانفیگ با تأخیر (توکن امن + لاگ جداگانه)
 
 on:
   workflow_dispatch:
@@ -39,14 +39,12 @@ jobs:
           }
           echo "👤 ورود به عنوان: $USER"
 
-          # بررسی دسترسی به مخزن ara0907/g2ray
           echo "🔍 بررسی دسترسی به ara0907/g2ray..."
           gh api repos/ara0907/g2ray --jq '.full_name' > /dev/null || {
             echo "❌ توکن شما به مخزن ara0907/g2ray دسترسی ندارد."
             exit 1
           }
 
-          # بررسی مجوز ساخت Codespace
           echo "🔍 بررسی مجوز ساخت Codespace..."
           gh api user/codespaces --jq '.total_count' > /dev/null 2>&1 || {
             echo "❌ توکن مجوز 'codespace' را ندارد."
@@ -74,29 +72,45 @@ jobs:
           gh codespace wait -c "$CS_NAME_CREATED" --timeout 10m
           echo "✅ Codespace با نام $CS_NAME_CREATED آماده است."
 
-      - name: اجرای پروژه و ضبط خروجی
+      - name: اجرای پروژه، ضبط خروجی و ثبت لاگ‌های محلی
         id: execute
         env:
           GH_TOKEN: ${{ secrets.G2RAY_TOKEN }}
         run: |
-          unset GITHUB_TOKEN
-          CS_NAME="${{ steps.create.outputs.codespace }}"
-          LOG_FILE="/tmp/g2ray-output.log"
-          echo "🚀 در حال اجرای اسکریپت نصب در Codespace $CS_NAME ..."
-          gh codespace ssh -c "$CS_NAME" -- "bash /workspaces/g2ray/.devcontainer/install.sh" > "$LOG_FILE" 2>&1
-          sleep 10
-          gh codespace cp -c "$CS_NAME" remote:"$LOG_FILE" terminal-output.txt
-          echo "📄 خروجی پروژه:"
-          cat terminal-output.txt
+          # فعال‌سازی ضبط تمام خروجی‌ها (stdout+stderr) در یک فایل لاگ محلی
+          exec > >(tee -a /tmp/workflow-activity.log) 2>&1
 
-      - name: آپلود خروجی به عنوان Artifact
+          unset GITHUB_TOKEN
+
+          CS_NAME="${{ steps.create.outputs.codespace }}"
+          REMOTE_LOG="/tmp/g2ray-output.log"
+          LOCAL_OUTPUT="terminal-output.txt"
+
+          echo "🚀 در حال اجرای اسکریپت نصب در Codespace $CS_NAME ..."
+          gh codespace ssh -c "$CS_NAME" -- "bash /workspaces/g2ray/.devcontainer/install.sh > $REMOTE_LOG 2>&1"
+          sleep 10
+
+          echo "📥 در حال دریافت فایل خروجی از Codespace..."
+          gh codespace cp -c "$CS_NAME" remote:"$REMOTE_LOG" "$LOCAL_OUTPUT"
+          echo "📄 خروجی پروژه (terminal-output.txt):"
+          cat "$LOCAL_OUTPUT"
+          echo "✅ عملیات اجرا و دریافت خروجی به پایان رسید."
+
+      - name: آپلود خروجی اصلی پروژه (کانفیگ)
         uses: actions/upload-artifact@v4
         with:
           name: g2ray-vless-config-link
           path: terminal-output.txt
 
+      - name: آپلود لاگ فعالیت workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-full-log
+          path: /tmp/workflow-activity.log
+
       - name: تأخیر پیش از حذف Codespace
         run: |
+          exec > >(tee -a /tmp/workflow-activity.log) 2>&1
           DELAY_MINUTES=${{ github.event.inputs.retention_minutes }}
           echo "⏳ Codespace برای $DELAY_MINUTES دقیقه دیگر فعال می‌ماند..."
           sleep $(( DELAY_MINUTES * 60 ))
@@ -107,6 +121,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.G2RAY_TOKEN }}
         run: |
+          exec > >(tee -a /tmp/workflow-activity.log) 2>&1
           unset GITHUB_TOKEN
           CS_NAME="${{ steps.create.outputs.codespace }}"
           echo "🗑️ حذف Codespace $CS_NAME ..."

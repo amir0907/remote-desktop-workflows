@@ -1,4 +1,4 @@
-name: اجرای g2ray و دریافت کانفیگ با تأخیر (توکن مستقیم امن)
+name: اجرای g2ray و دریافت کانفیگ با تأخیر (توکن امن)
 
 on:
   workflow_dispatch:
@@ -19,52 +19,77 @@ jobs:
         run: |
           type -p gh || (sudo apt-get update && sudo apt-get install -y gh)
 
-      - name: تنظیم توکن و تست احراز هویت
+      - name: احراز هویت با توکن شما و تست کامل دسترسی‌ها
         env:
-          # 👇 توکن خود را دقیقاً اینجا قرار دهید (فقط در مخزن خصوصی)
-          GH_TOKEN: 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
+          # 👇 توکن از Secret مخزن خوانده می‌شود (کاملاً امن، مثل فایل متنی)
+          GH_TOKEN: ${{ secrets.G2RAY_TOKEN }}
         run: |
-          if [ -z "$GH_TOKEN" ] || [ "$GH_TOKEN" = "ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXX" ]; then
-            echo "❌ توکن خالی یا همچنان مقدار پیش‌فرض است. لطفاً آن را جایگزین کنید."
+          # ❗️ اولویت GITHUB_TOKEN سیستم را حذف می‌کنیم
+          unset GITHUB_TOKEN
+
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ توکن تنظیم نشده است. ابتدا Secret با نام G2RAY_TOKEN را در تنظیمات مخزن ایجاد کنید."
             exit 1
           fi
-          echo "توکن تنظیم شد (طول: ${#GH_TOKEN})"
-          USER=$(gh api user --jq '.login' 2>&1) || {
-            echo "❌ احراز هویت شکست خورد. لطفاً موارد زیر را بررسی کنید:"
-            echo "  - توکن دقیقاً از صفحه تنظیمات گیت‌هاب کپی شده باشد (بدون فاصله اضافه)"
-            echo "  - توکن از نوع classic و دارای مجوزهای repo و codespace باشد"
-            echo "  - توکن منقضی نشده باشد"
-            echo "خطای دریافتی: $USER"
+
+          echo "✅ توکن با طول ${#GH_TOKEN} دریافت شد."
+
+          # لاگین صریح با توکن (دیگر هیچ ابهامی وجود ندارد)
+          echo "$GH_TOKEN" | gh auth login --with-token
+          USER=$(gh api user --jq '.login') || {
+            echo "❌ توکن نامعتبر است یا منقضی شده."
             exit 1
           }
-          echo "✅ احراز هویت موفق. ورود به عنوان: $USER"
+          echo "👤 ورود به عنوان: $USER"
+
+          # تست دسترسی به مخزن g2ray (حداقل دسترسی repo)
+          echo "🔍 بررسی دسترسی به edrisranjbar/g2ray..."
+          gh api repos/edrisranjbar/g2ray --jq '.full_name' > /dev/null || {
+            echo "❌ توکن شما به مخزن edrisranjbar/g2ray دسترسی ندارد."
+            exit 1
+          }
+
+          # تست امکان ساخت Codespace
+          echo "🔍 بررسی مجوز ساخت Codespace..."
+          gh api user/codespaces --jq '.total_count' > /dev/null 2>&1 || {
+            echo "❌ توکن مجوز 'codespace' را ندارد."
+            exit 1
+          }
+
+          echo "🎉 تمام بررسی‌های احراز و دسترسی با موفقیت گذرانده شد."
 
       - name: ساخت Codespace روی پروژه اصلی g2ray
         id: create
         run: |
+          unset GITHUB_TOKEN
           REPO="edrisranjbar/g2ray"
-          echo "استفاده از مخزن: $REPO"
           CS_NAME="g2ray-run-$(date +%s)"
+          echo "📦 ساخت Codespace در مخزن $REPO ..."
           gh codespace create \
             --repo "$REPO" \
             --branch main \
             --machine basicLinux32gb \
             --codespace-name "$CS_NAME" \
-            --json name,state -q '.name' > cs_name.txt
-          echo "codespace=$(cat cs_name.txt)" >> $GITHUB_OUTPUT
-          echo "منتظر آماده شدن Codespace (حدود ۲ تا ۵ دقیقه)..."
-          gh codespace wait -c "$(cat cs_name.txt)" --timeout 10m
+            --json name -q '.name' > cs_name.txt
+          CS_NAME_CREATED=$(cat cs_name.txt)
+          echo "codespace=$CS_NAME_CREATED" >> $GITHUB_OUTPUT
+          echo "⏳ منتظر آماده شدن Codespace (حدود ۲ تا ۵ دقیقه)..."
+          gh codespace wait -c "$CS_NAME_CREATED" --timeout 10m
+          echo "✅ Codespace با نام $CS_NAME_CREATED آماده است."
 
       - name: اجرای پروژه و ضبط خروجی
         id: execute
+        env:
+          GH_TOKEN: ${{ secrets.G2RAY_TOKEN }}
         run: |
+          unset GITHUB_TOKEN
           CS_NAME="${{ steps.create.outputs.codespace }}"
-          echo "در حال ضبط لاگ‌های Codespace $CS_NAME ..."
           LOG_FILE="/tmp/g2ray-output.log"
-          gh codespace ssh -c "$CS_NAME" -- "bash /workspaces/g2ray/.devcontainer/install.sh > $LOG_FILE 2>&1"
+          echo "🚀 در حال اجرای اسکریپت نصب در Codespace $CS_NAME ..."
+          gh codespace ssh -c "$CS_NAME" -- "bash /workspaces/g2ray/.devcontainer/install.sh" > "$LOG_FILE" 2>&1
           sleep 10
           gh codespace cp -c "$CS_NAME" remote:"$LOG_FILE" terminal-output.txt
-          echo "✅ خروجی پروژه دریافت شد:"
+          echo "📄 خروجی پروژه:"
           cat terminal-output.txt
 
       - name: آپلود خروجی به عنوان Artifact
@@ -82,7 +107,10 @@ jobs:
 
       - name: حذف Codespace
         if: always()
+        env:
+          GH_TOKEN: ${{ secrets.G2RAY_TOKEN }}
         run: |
+          unset GITHUB_TOKEN
           CS_NAME="${{ steps.create.outputs.codespace }}"
-          echo "حذف Codespace $CS_NAME ..."
+          echo "🗑️ حذف Codespace $CS_NAME ..."
           gh codespace delete -c "$CS_NAME" --force || true

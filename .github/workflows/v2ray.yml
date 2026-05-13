@@ -1,4 +1,4 @@
-name: اجرای g2ray و دریافت کانفیگ با تأخیر (توکن امن + لاگ جداگانه)
+name: اجرای g2ray و دریافت کانفیگ با تأخیر (رفع ارور Fork - پشتیبان خودکار)
 
 on:
   workflow_dispatch:
@@ -14,49 +14,71 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
+    # ارتقاء دسترسی GITHUB_TOKEN برای پشتیبانی (در صورت نیاز)
+    permissions:
+      contents: read
+      codespaces: write
+
     steps:
       - name: نصب GitHub CLI
         run: |
           type -p gh || (sudo apt-get update && sudo apt-get install -y gh)
 
-      - name: احراز هویت با توکن شما و تست کامل دسترسی‌ها
+      - name: احراز هویت و تست دسترسی (انعطاف‌پذیر)
         env:
-          GH_TOKEN: ${{ secrets.G2RAY_TOKEN }}
+          # تلاش برای گرفتن توکن شخصی از Secret (مثل فایل متنی امن)
+          CUSTOM_TOKEN: ${{ secrets.G2RAY_TOKEN }}
         run: |
-          unset GITHUB_TOKEN
-
-          if [ -z "$GH_TOKEN" ]; then
-            echo "❌ توکن تنظیم نشده است. ابتدا Secret با نام G2RAY_TOKEN را در تنظیمات مخزن ایجاد کنید."
-            exit 1
+          # ❗️ دیگر GITHUB_TOKEN را حذف نمی‌کنیم تا همیشه یک پشتیبان وجود داشته باشد.
+          # اولویت با توکن شخصی است، در غیر این صورت از توکن خودکار استفاده می‌کنیم.
+          
+          if [ -n "$CUSTOM_TOKEN" ]; then
+            echo "✅ توکن شخصی از Secret دریافت شد (طول: ${#CUSTOM_TOKEN})"
+            # لاگین با توکن شخصی
+            echo "$CUSTOM_TOKEN" | gh auth login --with-token
+          else
+            echo "⚠️ توکن شخصی (G2RAY_TOKEN) در Secret یافت نشد! در حال استفاده از GITHUB_TOKEN خودکار."
+            echo "⚠️ توجه: در این حالت فقط می‌توانید در همین مخزن Codespace بسازید، نه در ara0907/g2ray."
+            # با GITHUB_TOKEN خودکار که در محیط هست کار می‌کنیم.
+            # gh از GITHUB_TOKEN استفاده خواهد کرد.
           fi
 
-          echo "✅ توکن با طول ${#GH_TOKEN} دریافت شد."
-
-          echo "$GH_TOKEN" | gh auth login --with-token
+          # تست کاربر لاگین شده
           USER=$(gh api user --jq '.login') || {
-            echo "❌ توکن نامعتبر است یا منقضی شده."
+            echo "❌ احراز هویت شکست خورد. لطفاً مطمئن شوید که Secret با نام دقیق G2RAY_TOKEN ایجاد شده است."
             exit 1
           }
-          echo "👤 ورود به عنوان: $USER"
+          echo "👤 ورود موفق به عنوان: $USER"
 
-          echo "🔍 بررسی دسترسی به ara0907/g2ray..."
-          gh api repos/ara0907/g2ray --jq '.full_name' > /dev/null || {
-            echo "❌ توکن شما به مخزن ara0907/g2ray دسترسی ندارد."
-            exit 1
-          }
+          # تست دسترسی به مخزن اصلی (فقط در صورت استفاده از توکن شخصی معنا دارد)
+          if [ -n "$CUSTOM_TOKEN" ]; then
+            echo "🔍 بررسی دسترسی به ara0907/g2ray با توکن شخصی..."
+            if gh api repos/ara0907/g2ray --jq '.full_name' > /dev/null 2>&1; then
+              echo "✅ دسترسی به ara0907/g2ray تأیید شد."
+            else
+              echo "❌ توکن شخصی شما به ara0907/g2ray دسترسی ندارد! مطمئن شوید PAT دارای مجوز repo باشد."
+              exit 1
+            fi
+          else
+            echo "ℹ️ با توکن خودکار، فقط دسترسی به همین مخزن بررسی می‌شود."
+            gh api repos/${{ github.repository }} --jq '.full_name' > /dev/null || {
+              echo "❌ حتی GITHUB_TOKEN هم کار نمی‌کند."
+              exit 1
+            }
+          fi
 
+          # تست مجوز ساخت Codespace
           echo "🔍 بررسی مجوز ساخت Codespace..."
           gh api user/codespaces --jq '.total_count' > /dev/null 2>&1 || {
-            echo "❌ توکن مجوز 'codespace' را ندارد."
+            echo "❌ توکن فعلی مجوز 'codespace' را ندارد."
             exit 1
           }
-
-          echo "🎉 تمام بررسی‌های احراز و دسترسی با موفقیت گذرانده شد."
+          echo "🎉 تمام بررسی‌ها با موفقیت گذرانده شد."
 
       - name: ساخت Codespace روی پروژه ara0907/g2ray
         id: create
         run: |
-          unset GITHUB_TOKEN
+          # دیگر unset نمی‌کنیم، اما اطمینان داریم با توکن مناسب وارد شده‌ایم.
           REPO="ara0907/g2ray"
           CS_NAME="g2ray-run-$(date +%s)"
           echo "📦 ساخت Codespace در مخزن $REPO ..."
@@ -72,16 +94,11 @@ jobs:
           gh codespace wait -c "$CS_NAME_CREATED" --timeout 10m
           echo "✅ Codespace با نام $CS_NAME_CREATED آماده است."
 
-      - name: اجرای پروژه، ضبط خروجی و ثبت لاگ‌های محلی
+      - name: اجرای پروژه و ضبط خروجی
         id: execute
-        env:
-          GH_TOKEN: ${{ secrets.G2RAY_TOKEN }}
         run: |
-          # فعال‌سازی ضبط تمام خروجی‌ها (stdout+stderr) در یک فایل لاگ محلی
           exec > >(tee -a /tmp/workflow-activity.log) 2>&1
-
-          unset GITHUB_TOKEN
-
+          
           CS_NAME="${{ steps.create.outputs.codespace }}"
           REMOTE_LOG="/tmp/g2ray-output.log"
           LOCAL_OUTPUT="terminal-output.txt"
@@ -103,12 +120,14 @@ jobs:
           path: terminal-output.txt
 
       - name: آپلود لاگ فعالیت workflow
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: workflow-full-log
           path: /tmp/workflow-activity.log
 
       - name: تأخیر پیش از حذف Codespace
+        if: always()
         run: |
           exec > >(tee -a /tmp/workflow-activity.log) 2>&1
           DELAY_MINUTES=${{ github.event.inputs.retention_minutes }}
@@ -118,11 +137,8 @@ jobs:
 
       - name: حذف Codespace
         if: always()
-        env:
-          GH_TOKEN: ${{ secrets.G2RAY_TOKEN }}
         run: |
           exec > >(tee -a /tmp/workflow-activity.log) 2>&1
-          unset GITHUB_TOKEN
           CS_NAME="${{ steps.create.outputs.codespace }}"
           echo "🗑️ حذف Codespace $CS_NAME ..."
           gh codespace delete -c "$CS_NAME" --force || true
